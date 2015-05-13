@@ -1,6 +1,6 @@
 {
   "name": "gulp-html-components",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "gulp-html-components",
   "main": "index.js",
   "scripts": {
