@@ -21,7 +21,7 @@
     "url": "https://github.com/seyself/gulp-html-components/issues"
   },
   "homepage": "https://github.com/seyself/gulp-html-components",
-  "devDependencies": {
+  "dependencies": {
     "clean-css": "^3.2.6",
     "gulp-util": "^3.0.4",
     "html-minifier": "^0.7.2",
