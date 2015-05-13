@@ -1,0 +1,34 @@
+{
+  "name": "gulp-html-components",
+  "version": "1.0.0",
+  "description": "gulp-html-components",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/seyself/gulp-html-components"
+  },
+  "keywords": [
+    "gulp",
+    "gulpplugin",
+    "webpack"
+  ],
+  "author": "Michiyasu Wada",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/seyself/gulp-html-components/issues"
+  },
+  "homepage": "https://github.com/seyself/gulp-html-components",
+  "devDependencies": {
+    "clean-css": "^3.2.6",
+    "gulp-util": "^3.0.4",
+    "html-minifier": "^0.7.2",
+    "js-beautify": "^1.5.5",
+    "lodash": "^3.7.0",
+    "path": "^0.11.14",
+    "through2": "^0.6.5",
+    "uglify-js": "^2.4.20"
+  }
+}
