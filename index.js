@@ -19,18 +19,20 @@ var scriptList = [];
 var currentPath = "";
 var componentPath = "";
 var destPath = "";
+var rootPath = "";
 var srcPath = "";
 
 module.exports = function (options)
 {
-  currentPath = process.cwd();
-  componentPath = options.components;
-  destPath = options.dest;
-  srcPath = options.src;
-
   function transform(file, encoding, callback)
   {
-    console.log("'gulp-html-components': " + path.relative(process.cwd(), file.path));
+    currentPath = process.cwd();
+    componentPath = options.components;
+    destPath = options.dest;
+    srcPath = options.src;
+    rootPath = options.root;
+
+    console.log("out " + getDestPath(file.path, 'html'));
     styleList = [];
     scriptList = [];
 
@@ -102,6 +104,9 @@ module.exports = function (options)
         }
     );
 
+    writeFiles(cssCodes);
+    writeFiles(jsCodes);
+
     file.contents = new Buffer(content);
     this.push(file);
     callback();
@@ -109,8 +114,6 @@ module.exports = function (options)
 
   function flush(callback) 
   {
-    writeFiles(cssCodes);
-    writeFiles(jsCodes);
     callback();
   }
 
@@ -191,7 +194,7 @@ function writeStyles(filepath, html)
 
   if (code)
   {
-    var dest = getDestPath(filepath, 'css');
+    var dest = getDestPath(filepath, 'css', '_components');
     var mincss = new CleanCSS().minify(code);
 
     if (mincss.errors.length == 0)
@@ -203,7 +206,8 @@ function writeStyles(filepath, html)
     code = cssbeautify(code);
     cssCodes.push({dest:dest, code:code});
 
-    var absolutePath = "/" + path.relative(destPath, dest);
+    console.log('out', dest);
+    var absolutePath = "/" + path.relative(rootPath, dest);
     html = html.replace('</head>', '\n<link rel="stylesheet" href="' + absolutePath + '" />\n</head>');
   }
 
@@ -261,10 +265,11 @@ function writeScripts(filepath, html)
   {
     //code = UglifyJS.minify(code, {fromString:true}).code;
     code = jsbeautify(code);
-    var dest = getDestPath(filepath, 'js');
+    var dest = getDestPath(filepath, 'js', '_components');
     jsCodes.push({dest:dest, code:code});
 
-    var absolutePath = "/" + path.relative(destPath, dest);
+    console.log('out', dest);
+    var absolutePath = "/" + path.relative(rootPath, dest);
     code2 += '\n<script src="' + absolutePath + '"></script>';
   }
 
@@ -429,11 +434,12 @@ function parseScripts(componentPath, text)
 }
 
 /** 外部ファイルのパスを取得する */
-function getDestPath(filepath, exp)
+function getDestPath(filepath, exp, suffix)
 {
+  if (!suffix) suffix = "";
   var dir = path.dirname(filepath, '.html');
   var name = path.basename(filepath, '.html');
-  var writepath = path.resolve(dir, name + '.' + exp);
+  var writepath = path.resolve(dir, name + suffix + '.' + exp);
   var srcPath2 = srcPath.replace(/(\*+).+/, '');
   var dest = path.resolve(destPath, path.relative(srcPath2, writepath));
   dest = path.relative(currentPath, dest);
