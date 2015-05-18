@@ -11,6 +11,7 @@ var jsbeautify = require('js-beautify').js;
 var cssbeautify = require('js-beautify').css;
 var htmlbeautify = require('js-beautify').html;
 var htmlMinify = require('html-minifier').minify;
+var exec = require('child_process').exec;
 
 var cssCodes = [];
 var jsCodes = [];
@@ -21,6 +22,12 @@ var componentPath = "";
 var destPath = "";
 var rootPath = "";
 var srcPath = "";
+var assetPath = "";
+var destHTMLPath = "";
+var destHTMLDir = "";
+var isAbsoluteAssetsPath = false;
+
+var EXCLUDE_TAG = "exclude";
 
 module.exports = function (options)
 {
@@ -30,9 +37,14 @@ module.exports = function (options)
     componentPath = options.components;
     destPath = options.dest;
     srcPath = options.src;
+    assetPath = options.assets || destPath;
     rootPath = options.root;
+    isAbsoluteAssetsPath = options.absoluteAssetPath == true;
 
-    console.log("out " + getDestPath(file.path, 'html'));
+    destHTMLPath = getDestPath(file.path, 'html');
+    destHTMLDir = path.dirname(destHTMLPath);
+    console.log("out " + destHTMLPath);
+
     styleList = [];
     scriptList = [];
 
@@ -63,6 +75,8 @@ module.exports = function (options)
           {
             item = null;
           }
+
+          // コンポーネントの読み込み
           if (item && items.length > 2)
           {
             var name = items[1];
@@ -70,14 +84,14 @@ module.exports = function (options)
             var matches = item.match(/\s([\w\-]+)(=('|").+?\3)?/ig); // タグの属性を分解して取り出す // [ aaa='1', bbb='true', ccc, ...]
             var data = parseAttributes(matches);
             data.yield = tagContent;
-            return loadComponent(name, data);
+            return loadComponent(name, data);    // --------------- 使用しているコンポーネントを参照しデータを取り出す
           }
           return text;
         }
     );
 
-    content = writeStyles(file.path, content);
-    content = writeScripts(file.path, content);
+    content = writeStyles(file.path, content);   // --------------- コンポーネントが使用しているCSSを、外部ファイルにまとめる
+    content = writeScripts(file.path, content);  // --------------- コンポーネントが使用しているJavaScriptを、外部ファイルにまとめる
 
     content = htmlMinify(content, {
       collapseWhitespace: true,
@@ -86,6 +100,7 @@ module.exports = function (options)
     });
     content = content.replace(/>\s+</g, "><");
 
+    // ---------------------------------------------------------------------------- shader のコードは圧縮しないように一時退避させる
     var tmpScriptCodes = [""];
     var tmpScriptCodesNum = 0;
     content = content.replace(/<script[^>]*type="x-shader\/x-(fragment|vertex)"[^>]*>(.|\s)*?(<\/script>)/igm,
@@ -95,9 +110,13 @@ module.exports = function (options)
           return "<!--{{{ script-code-" + tmpScriptCodesNum + " }}}-->";
         }
     );
+
+    // ---------------------------------------------------------------------------- htmlソースを整頓する
     content = htmlbeautify(content, {
       end_with_newline: true
     });
+
+    // ---------------------------------------------------------------------------- 退避させた Shader コードを元に戻す
     content = content.replace(/<\!--{{{ script-code-(\d+) }}}-->/igm,
         function(text, num){
           return tmpScriptCodes[Number(num)];
@@ -119,6 +138,8 @@ module.exports = function (options)
 
   return through.obj(transform, flush);
 };
+
+
 
 function getTagContent(beginTag, tagName, content)
 {
@@ -153,7 +174,7 @@ function writeFileFunction(dir, item)
   }
 }
 
-/** 使用しているCSSのコードをまとめる */
+// -------------------------------------------------------------------------------- 使用しているCSSのコードをまとめる
 function writeStyles(filepath, html)
 {
   var code = "";
@@ -168,6 +189,7 @@ function writeStyles(filepath, html)
       //まったく同じコードは読まない
       if (readFiles.indexOf(item.code) < 0)
       {
+        item.code = replaceAssetPath(item.code, item);
         code += item.code;
         readFiles.push(item.code);
       }
@@ -181,6 +203,7 @@ function writeStyles(filepath, html)
         if (readFiles.indexOf(item.src) < 0)
         {
           var text = fs.readFileSync(item.src, 'utf8');
+          text = replaceAssetPath(text, item);
           code += text;
           readFiles.push(item.src);
         }
@@ -214,7 +237,7 @@ function writeStyles(filepath, html)
   return html;
 }
 
-/** 使用しているJavaScriptのコードをまとめる */
+// -------------------------------------------------------------------------------- 使用しているJavaScriptのコードをまとめる
 function writeScripts(filepath, html)
 {
   var code = "";
@@ -227,9 +250,10 @@ function writeScripts(filepath, html)
     var item = list[i];
     if (item.code)
     {
-      //まったく同じコードは読まない
+      // ------------------------ まったく同じコードは読まない
       if (readFiles.indexOf(item.code) < 0)
       {
+        item.code = replaceAssetPath(item.code, item);
         code += item.code;
         readFiles.push(item.code);
       }
@@ -239,7 +263,7 @@ function writeScripts(filepath, html)
     {
       try
       {
-        //1回読んだファイルは読まない
+        // ---------------------- 1回読んだファイルは読まない
         if (readFiles.indexOf(item.src) < 0)
         {
           if (item.src.match(/^(https?:)?\/\/.+/))
@@ -249,6 +273,7 @@ function writeScripts(filepath, html)
           else
           {
             var text = fs.readFileSync(item.src, 'utf8');
+            text = replaceAssetPath(text, item);
             code += text;
           }
           readFiles.push(item.src);
@@ -277,7 +302,7 @@ function writeScripts(filepath, html)
   return html;
 }
 
-/** タグの属性をパースしてオブジェクトで返す */
+// -------------------------------------------------------------------------------- タグの属性をパースしてオブジェクトで返す
 function parseAttributes(attrs)
 {
   var data = {};
@@ -302,7 +327,7 @@ function parseAttributes(attrs)
   return data;
 }
 
-/** コンポーネントファイルを読み込んで、データを置き換えて返す */
+// -------------------------------------------------------------------------------- コンポーネントファイルを読み込んで、データを置き換えて返す
 function loadComponent(name, data)
 {
   var result = "";
@@ -310,7 +335,7 @@ function loadComponent(name, data)
   {
     var current = process.cwd();
 
-    // package.json　から main に指定されたファイルパスを取得する
+    // ---------------------------------------------------------------------------- package.json から "main": に指定されたファイルパスを取得する
     var jsonPath = getRelativePath(name + '/package.json');
     var json = fs.readFileSync(jsonPath, enc);
     json = JSON.parse(json);
@@ -318,7 +343,7 @@ function loadComponent(name, data)
     var enc = 'utf8';
     var componentPath = path.dirname(filePath);
     var text = fs.readFileSync(filePath, enc);
-    text = parseHTML(text);
+    text = parseComponentHTML(text);
     if (data && text)
     {
       try
@@ -332,8 +357,11 @@ function loadComponent(name, data)
         text += "<!-- " + String(err) + " -->\n";
       }
     }
-    text = parseStyles(componentPath, text);
-    text = parseScripts(componentPath, text);
+    text = parseStyles(componentPath, name, text);    // ------------- コンポーネントが使用しているCSSを抽出する
+    text = parseScripts(componentPath, name, text);   // ------------- コンポーネントが使用しているJavaScriptを抽出する
+    text = replaceAssetPath(text, {name:name});       // ------------- コンポーネントで使用しているAssetのパスを変更する
+    copyAssets(componentPath, name);                  // ------------- コンポーネントで使用しているAssetファイルをコピーする
+
     result = text;
   }
   catch(err)
@@ -343,7 +371,48 @@ function loadComponent(name, data)
   return result;
 }
 
-function parseHTML(html)
+// -------------------------------------------------------------------------------- コンポーネントで使用しているAssetファイルをコピーする
+function copyAssets(componentPath, componentName)
+{
+  var fromAssetDir = componentPath + '/component-assets/*';
+  var toAssetDir = getAssetDir(componentName);
+
+  exec('mkdir -p ' + toAssetDir, function(err, stdout, stderr){
+    if (err) console.log('Error:', stderr);
+  });
+
+  exec('cp -rf ' + fromAssetDir + ' ' + toAssetDir, function(err, stdout, stderr){
+    if (err) console.log('Error:', stderr);
+  });
+}
+
+function getAssetDir(componentName)
+{
+  return destHTMLDir + '/assets/' + componentName + '/';
+}
+
+function replaceAssetPath(text, data)
+{
+  try
+  {
+    var baseDir = "";
+    if (isAbsoluteAssetsPath)
+    {
+      baseDir = '/' + path.relative(rootPath, destHTMLDir + '/assets/' + data.name);
+    }
+    else
+    {
+      baseDir = 'assets/' + data.name;
+    }
+
+    text = text.replace(/(\.\/)?component-assets/g, baseDir); // --------------- Assetのパスを絶対パスに変更
+  }
+  catch(e) {}
+  return text;
+}
+
+// -------------------------------------------------------------------------------- コンポーネントのHTMLコードから、headタグとbodyタグを取り除く
+function parseComponentHTML(html)
 {
   var result = "";
   var body = html.match(/<body[^>]*>((.|\s)*)?<\/body>/im);
@@ -370,26 +439,34 @@ function parseHTML(html)
 }
 
 
-/** コンポーネントで使用しているスタイルシートを分離する */
-function parseStyles(componentPath, text)
+// -------------------------------------------------------------------------------- コンポーネントで使用しているスタイルシートを分離する
+function parseStyles(componentPath, componentName, text)
 {
+  // ------------------------------------------------------------------------------ 外部CSS（linkタグ）を抽出し、HTMLコードから削除する
   text = text.replace(/<link[^>]*(rel=("|')stylesheet("|'))[^>]*(\/?>|<\/link>)/ig,
-      function(link){
+      function(link)
+      {
+        if (link.indexOf(EXCLUDE_TAG) > 0) return "";  // --------------------------- exclude 指定されているタグは無視する
+
         var filepath = link.match(/<link[^>]*\shref="([^"]+.s?css)"/i);
         if (filepath)
         {
           filepath = componentPath + '/' + filepath[1];
-          styleList.push({src:filepath, code:null});
+          styleList.push({src:filepath, code:null, name:componentName, path:componentPath});
         }
         return "";
       });
+  // ------------------------------------------------------------------------------ styleタグを抽出し、HTMLコードから削除する
   text = text.replace(/<style[^>]*>(.|\s)*?<\/style>/igm,
-      function(code){
+      function(code)
+      {
+        if (code.match(/^<style[^>]*exclude/i)) return "";  // ---------------- exclude 指定されているタグは無視する
+
         try
         {
           code = code.replace(/^<style[^>]*>/i, "");
           code = code.replace(/<\/style>$/i, "");
-          styleList.push({src:null, code:code});
+          styleList.push({src:null, code:code, name:componentName, path:componentPath});
         }
         catch(err)
         {
@@ -400,11 +477,14 @@ function parseStyles(componentPath, text)
   return text;
 }
 
-/** コンポーネントで使用しているスクリプトを分離する */
-function parseScripts(componentPath, text)
+// -------------------------------------------------------------------------------- コンポーネントで使用しているスクリプトを分離する
+function parseScripts(componentPath, componentName, text)
 {
   text = text.replace(/<script[^>]*>(.|\s)*?<\/script>/igm,
-      function(script){
+      function(script)
+      {
+        if (script.match(/^<script[^>]*exclude/i)) return "";  // --------------- exclude 指定されているタグは無視する
+
         var filepath = script.match(/<script[^>]*\ssrc="([^"]+)"/i);
         if (filepath)
         {
@@ -413,7 +493,7 @@ function parseScripts(componentPath, text)
           {
             filepath = componentPath + '/' + filepath;
           }
-          scriptList.push({src:filepath, code:null});
+          scriptList.push({src:filepath, code:null, name:componentName, path:componentPath});
         }
         else
         {
@@ -421,7 +501,7 @@ function parseScripts(componentPath, text)
           {
             var code = script.replace(/^<script[^>]*>/i, "");
             code = code.replace(/<\/script>$/i, "");
-            scriptList.push({src:null, code:code});
+            scriptList.push({src:null, code:code, name:componentName, path:componentPath});
           }
           catch(err)
           {
@@ -433,7 +513,7 @@ function parseScripts(componentPath, text)
   return text;
 }
 
-/** 外部ファイルのパスを取得する */
+// -------------------------------------------------------------------------------- 外部ファイルのパスを取得する
 function getDestPath(filepath, exp, suffix)
 {
   if (!suffix) suffix = "";
@@ -446,7 +526,7 @@ function getDestPath(filepath, exp, suffix)
   return dest;
 }
 
-/** コンポーネントのファイルパスを取得する */
+// -------------------------------------------------------------------------------- コンポーネントのファイルパスを取得する
 function getRelativePath(filename)
 {
   return path.relative(currentPath, path.resolve(componentPath, filename));
