@@ -41,6 +41,11 @@ module.exports = function (options)
     rootPath = options.root;
     isAbsoluteAssetsPath = options.absoluteAssetPath == true;
 
+    // options.beforeScript: null,      // コンポーネント用JSの頭に追加する
+    // options.afterScript: 'src/libs/ComponentAfterScript.js', // コンポーネント用JSの最後に追加する
+    // options.beforeStyle: null,       // コンポーネント用CSSの頭に追加する
+    // options.afterStyle: null,        // コンポーネント用CSSの最後に追加する
+
     destHTMLPath = getDestPath(file.path, 'html');
     destHTMLDir = path.dirname(destHTMLPath);
     console.log("out " + destHTMLPath);
@@ -90,8 +95,8 @@ module.exports = function (options)
         }
     );
 
-    content = writeStyles(file.path, content);   // --------------- コンポーネントが使用しているCSSを、外部ファイルにまとめる
-    content = writeScripts(file.path, content);  // --------------- コンポーネントが使用しているJavaScriptを、外部ファイルにまとめる
+    content = writeStyles(file.path, content, options);   // --------------- コンポーネントが使用しているCSSを、外部ファイルにまとめる
+    content = writeScripts(file.path, content, options);  // --------------- コンポーネントが使用しているJavaScriptを、外部ファイルにまとめる
 
     content = htmlMinify(content, {
       collapseWhitespace: true,
@@ -175,12 +180,15 @@ function writeFileFunction(dir, item)
 }
 
 // -------------------------------------------------------------------------------- 使用しているCSSのコードをまとめる
-function writeStyles(filepath, html)
+function writeStyles(filepath, html, options)
 {
   var code = "";
   var list = styleList;
   var len = list.length;
   var readFiles = [];
+  var before = options.beforeStyle ? fs.readFileSync(options.beforeStyle) : "";
+  var after  = options.afterStyle  ? fs.readFileSync(options.afterStyle)  : "";
+
   for(var i=0; i<len; i++)
   {
     var item = list[i];
@@ -218,6 +226,10 @@ function writeStyles(filepath, html)
   if (code)
   {
     var dest = getDestPath(filepath, 'css', '_components');
+
+    if (before) code = before + '\n' + code;
+    if (after)  code = code + '\n' + after;
+
     var mincss = new CleanCSS().minify(code);
 
     if (mincss.errors.length == 0)
@@ -238,9 +250,11 @@ function writeStyles(filepath, html)
 }
 
 // -------------------------------------------------------------------------------- 使用しているJavaScriptのコードをまとめる
-function writeScripts(filepath, html)
+function writeScripts(filepath, html, options)
 {
   var code = "";
+  var before = options.beforeScript ? fs.readFileSync(options.beforeScript) : "";
+  var after  = options.afterScript  ? fs.readFileSync(options.afterScript)  : "";
   var list = scriptList;
   var len = list.length;
   var readFiles = [];
@@ -288,6 +302,9 @@ function writeScripts(filepath, html)
   var code2 = srcList.join('\n');
   if (code)
   {
+    if (before) code = before + '\n' + code;
+    if (after)  code = code + '\n' + after;
+
     //code = UglifyJS.minify(code, {fromString:true}).code;
     code = jsbeautify(code);
     var dest = getDestPath(filepath, 'js', '_components');
