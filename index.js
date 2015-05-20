@@ -67,33 +67,7 @@ module.exports = function (options)
 
     var content = file.contents.toString();
 
-    content = content.replace(/<(\w+\-[^>\s]+)\s?(.|\s)*?(<\/\1>)/igm, //コンポーネントタグを抜き出す // <...> 〜 </...>
-        function(text)
-        {
-          var item = text;
-          var items = item.match(/<(\w+\-[^>\s]+)\s?(.|\s)*?>/i); // 開始タグとタグ名を取り出す // [ <tag-name attr='...'>, tag-name, ...]
-          if (items)
-          {
-            item = items[0];
-          }
-          else
-          {
-            item = null;
-          }
-
-          // コンポーネントの読み込み
-          if (item && items.length > 2)
-          {
-            var name = items[1];
-            var tagContent = getTagContent(item, name, text);
-            var matches = item.match(/\s([\w\-]+)(=('|").+?\3)?/ig); // タグの属性を分解して取り出す // [ aaa='1', bbb='true', ccc, ...]
-            var data = parseAttributes(matches);
-            data.yield = tagContent;
-            return loadComponent(name, data);    // --------------- 使用しているコンポーネントを参照しデータを取り出す
-          }
-          return text;
-        }
-    );
+    content = parseSourceHTML(content);
 
     content = writeStyles(file.path, content, options);   // --------------- コンポーネントが使用しているCSSを、外部ファイルにまとめる
     content = writeScripts(file.path, content, options);  // --------------- コンポーネントが使用しているJavaScriptを、外部ファイルにまとめる
@@ -144,7 +118,39 @@ module.exports = function (options)
   return through.obj(transform, flush);
 };
 
+function parseSourceHTML(content, _compName)
+{
+  return content.replace(/<(\w+\-[^>\s]+)\s?(.|\s)*?(<\/\1>)/igm, //コンポーネントタグを抜き出す // <...> 〜 </...>
+      function(text)
+      {
+        var item = text;
+        var items = item.match(/<(\w+\-[^>\s]+)\s?(.|\s)*?>/i); // 開始タグとタグ名を取り出す // [ <tag-name attr='...'>, tag-name, ...]
+        if (items)
+        {
+          item = items[0];
+        }
+        else
+        {
+          item = null;
+        }
 
+        // コンポーネントの読み込み
+        if (item && items.length > 2)
+        {
+          var name = items[1];
+          var tagContent = getTagContent(item, name, text);
+          var matches = item.match(/\s([\w\-]+)(=('|").+?\3)?/ig); // タグの属性を分解して取り出す // [ aaa='1', bbb='true', ccc, ...]
+          var data = parseAttributes(matches);
+          data.yield = tagContent;
+          var replacedHTML = loadComponent(name, data);    // --------------- 使用しているコンポーネントを参照しデータを取り出す
+          if (_compName != name)
+            replacedHTML = parseSourceHTML(replacedHTML, name);    // --------------- コンポーネント内で別のコンポーネントを使っていないかチェックする
+          return replacedHTML;
+        }
+        return text;
+      }
+  );
+}
 
 function getTagContent(beginTag, tagName, content)
 {
@@ -242,8 +248,12 @@ function writeStyles(filepath, html, options)
     cssCodes.push({dest:dest, code:code});
 
     console.log('out', dest);
-    var absolutePath = "/" + path.relative(rootPath, dest);
-    html = html.replace('</head>', '\n<link rel="stylesheet" href="' + absolutePath + '" />\n</head>');
+
+    var insertPath = path.relative(rootPath, dest);
+    if (isAbsoluteAssetsPath)
+      insertPath = '/' + insertPath;
+
+    html = html.replace('</head>', '\n<link rel="stylesheet" href="' + insertPath + '" />\n</head>');
   }
 
   return html;
@@ -311,8 +321,10 @@ function writeScripts(filepath, html, options)
     jsCodes.push({dest:dest, code:code});
 
     console.log('out', dest);
-    var absolutePath = "/" + path.relative(rootPath, dest);
-    code2 += '\n<script src="' + absolutePath + '"></script>';
+    var insertPath = path.relative(rootPath, dest);
+    if (isAbsoluteAssetsPath)
+      insertPath = '/' + insertPath;
+    code2 += '\n<script src="' + insertPath + '"></script>';
   }
 
   html = html.replace('</body>', code2 + '\n</body>');
@@ -395,11 +407,11 @@ function copyAssets(componentPath, componentName)
   var toAssetDir = getAssetDir(componentName);
 
   exec('mkdir -p ' + toAssetDir, function(err, stdout, stderr){
-    if (err) console.log('Error:', stderr);
+    //if (err) console.log('Error:', stderr);
   });
 
   exec('cp -rf ' + fromAssetDir + ' ' + toAssetDir, function(err, stdout, stderr){
-    if (err) console.log('Error:', stderr);
+    //if (err) console.log('Error:', stderr);
   });
 }
 
