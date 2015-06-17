@@ -253,7 +253,12 @@ function writeStyles(filepath, html, options)
     if (isAbsoluteAssetsPath)
       insertPath = '/' + insertPath;
 
-    html = html.replace('</head>', '\n<link rel="stylesheet" href="' + insertPath + '" />\n</head>');
+    var includeComment = '<!--include components-css-->';
+
+    if (html.indexOf(includeComment) >= 0)
+      html = html.replace(includeComment, '<link rel="stylesheet" href="' + insertPath + '" />');
+    else
+      html = html.replace('</head>', '\n<link rel="stylesheet" href="' + insertPath + '" />\n</head>');
   }
 
   return html;
@@ -327,7 +332,12 @@ function writeScripts(filepath, html, options)
     code2 += '\n<script src="' + insertPath + '"></script>';
   }
 
-  html = html.replace('</body>', code2 + '\n</body>');
+  var includeComment = '<!--include components-js-->';
+  if (html.indexOf(includeComment) >= 0)
+    html = html.replace(includeComment, code2);
+  else
+    html = html.replace('</body>', code2 + '\n</body>');
+
   return html;
 }
 
