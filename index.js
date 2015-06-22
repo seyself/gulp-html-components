@@ -23,6 +23,8 @@ var destPath = "";
 var rootPath = "";
 var srcPath = "";
 var assetPath = "";
+var destJsPath = "";
+var destCssPath = "";
 var destHTMLPath = "";
 var destHTMLDir = "";
 var isAbsoluteAssetsPath = false;
@@ -36,6 +38,8 @@ module.exports = function (options)
     currentPath = process.cwd();
     componentPath = options.components;
     destPath = options.dest;
+    destJsPath = options.dest_js || destPath;
+    destCssPath = options.dest_css || destPath;
     srcPath = options.src;
     assetPath = options.assets || destPath;
     rootPath = options.root;
@@ -110,7 +114,7 @@ module.exports = function (options)
     callback();
   }
 
-  function flush(callback) 
+  function flush(callback)
   {
     callback();
   }
@@ -203,7 +207,7 @@ function writeStyles(filepath, html, options)
       //まったく同じコードは読まない
       if (readFiles.indexOf(item.code) < 0)
       {
-        item.code = replaceAssetPath(item.code, item);
+        item.code = replaceAssetPath(item.code, item, destCssPath);
         code += item.code;
         readFiles.push(item.code);
       }
@@ -217,7 +221,7 @@ function writeStyles(filepath, html, options)
         if (readFiles.indexOf(item.src) < 0)
         {
           var text = fs.readFileSync(item.src, 'utf8');
-          text = replaceAssetPath(text, item);
+          text = replaceAssetPath(text, item, destCssPath);
           code += text;
           readFiles.push(item.src);
         }
@@ -240,9 +244,6 @@ function writeStyles(filepath, html, options)
 
     if (mincss.errors.length == 0)
       code = mincss.styles;
-
-    // if (mincss.errors.length > 0) console.log(mincss.errors.join('\n'));
-    // if (mincss.warnings.length > 0) console.log(mincss.warnings.join('\n'));
 
     code = cssbeautify(code);
     cssCodes.push({dest:dest, code:code});
@@ -282,7 +283,7 @@ function writeScripts(filepath, html, options)
       // ------------------------ まったく同じコードは読まない
       if (readFiles.indexOf(item.code) < 0)
       {
-        item.code = replaceAssetPath(item.code, item);
+        item.code = replaceAssetPath(item.code, item, destPath);
         code += item.code;
         readFiles.push(item.code);
       }
@@ -302,7 +303,7 @@ function writeScripts(filepath, html, options)
           else
           {
             var text = fs.readFileSync(item.src, 'utf8');
-            text = replaceAssetPath(text, item);
+            text = replaceAssetPath(text, item, destPath);
             code += text;
           }
           readFiles.push(item.src);
@@ -396,10 +397,10 @@ function loadComponent(name, data)
         text += "<!-- " + String(err) + " -->\n";
       }
     }
-    text = parseStyles(componentPath, name, text);    // ------------- コンポーネントが使用しているCSSを抽出する
-    text = parseScripts(componentPath, name, text);   // ------------- コンポーネントが使用しているJavaScriptを抽出する
-    text = replaceAssetPath(text, {name:name});       // ------------- コンポーネントで使用しているAssetのパスを変更する
-    copyAssets(componentPath, name);                  // ------------- コンポーネントで使用しているAssetファイルをコピーする
+    text = parseStyles(componentPath, name, text);        // ------------- コンポーネントが使用しているCSSを抽出する
+    text = parseScripts(componentPath, name, text);       // ------------- コンポーネントが使用しているJavaScriptを抽出する
+    text = replaceAssetPath(text, {name:name}, destPath); // ------------- コンポーネントで使用しているAssetのパスを変更する
+    copyAssets(componentPath, name);                      // ------------- コンポーネントで使用しているAssetファイルをコピーする
 
     result = text;
   }
@@ -415,7 +416,6 @@ function copyAssets(componentPath, componentName)
 {
   var fromAssetDir = componentPath + '/component-assets/*';
   var toAssetDir = getAssetDir(componentName);
-
   exec('mkdir -p ' + toAssetDir, function(err, stdout, stderr){
     //if (err) console.log('Error:', stderr);
   });
@@ -427,23 +427,24 @@ function copyAssets(componentPath, componentName)
 
 function getAssetDir(componentName)
 {
-  return destHTMLDir + '/assets/' + componentName + '/';
+  return path.join(destPath, destHTMLDir + '/assets/' + componentName + '/');
 }
 
-function replaceAssetPath(text, data)
+function replaceAssetPath(text, data, dir)
 {
   try
   {
     var baseDir = "";
+    var fileDir = destHTMLDir + '/assets/' + data.name;
+    fileDir = path.join(rootPath, fileDir);
     if (isAbsoluteAssetsPath)
     {
-      baseDir = '/' + path.relative(rootPath, destHTMLDir + '/assets/' + data.name);
+      baseDir = '/' + fileDir;
     }
     else
     {
-      baseDir = 'assets/' + data.name;
+      baseDir = path.relative(dir, fileDir);
     }
-
     text = text.replace(/(\.\/)?component-assets/g, baseDir); // --------------- Assetのパスを絶対パスに変更
   }
   catch(e) {}
@@ -454,6 +455,22 @@ function replaceAssetPath(text, data)
 function parseComponentHTML(html)
 {
   var result = "";
+  var BEGIN_EXPORT = '<!--export-->';
+  var END_EXPORT = '<!--/export-->';
+  if (html.indexOf(BEGIN_EXPORT) >= 0)
+  {
+    var blocks = html.split(BEGIN_EXPORT);
+    var len = blocks.length;
+    if (len > 1)
+    {
+      for(var i=1;i<len;i++)
+      {
+        result += blocks[i].split(END_EXPORT).shift();
+      }
+      if (result) return result;
+    }
+  }
+
   var body = html.match(/<body[^>]*>((.|\s)*)?<\/body>/im);
   var head = html.match(/<head[^>]*>((.|\s)*)?/im);
   if (head) head = head[1].split('</head>')[0];
@@ -560,7 +577,14 @@ function getDestPath(filepath, exp, suffix)
   var name = path.basename(filepath, '.html');
   var writepath = path.resolve(dir, name + suffix + '.' + exp);
   var srcPath2 = srcPath.replace(/(\*+).+/, '');
-  var dest = path.resolve(destPath, path.relative(srcPath2, writepath));
+  var filePath = path.relative(srcPath2, writepath);
+  var fileDir = './';
+  if (exp == 'css')
+    fileDir = destCssPath;
+  if (exp == 'js')
+    fileDir = destJsPath;
+  filePath = path.resolve(fileDir, filePath);
+  var dest = path.resolve(destPath, filePath);
   dest = path.relative(currentPath, dest);
   return dest;
 }
