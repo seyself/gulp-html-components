@@ -27,6 +27,10 @@ var destJsPath = "";
 var destCssPath = "";
 var destHTMLPath = "";
 var destHTMLDir = "";
+var minify = false;
+var html_min = false;
+var js_min = false;
+var css_min = false;
 var isAbsoluteAssetsPath = false;
 
 var EXCLUDE_TAG = "exclude";
@@ -38,11 +42,14 @@ module.exports = function (options)
     currentPath = process.cwd();
     componentPath = options.components;
     destPath = options.dest;
-    destJsPath = options.dest_js || destPath;
-    destCssPath = options.dest_css || destPath;
+    destJsPath = options.dest_js;
+    destCssPath = options.dest_css;
     srcPath = options.src;
     assetPath = options.assets || destPath;
     rootPath = options.root;
+    html_min = options.html_min || false;
+    js_min   = options.js_min   || false;
+    css_min  = options.css_min  || false;
     isAbsoluteAssetsPath = options.absoluteAssetPath == true;
 
     // options.beforeScript: null,      // コンポーネント用JSの頭に追加する
@@ -95,9 +102,16 @@ module.exports = function (options)
     );
 
     // ---------------------------------------------------------------------------- htmlソースを整頓する
-    content = htmlbeautify(content, {
-      end_with_newline: true
-    });
+    if (!html_min)
+    {
+      content = htmlbeautify(content, {
+        extra_liners: [],
+        indent_inner_html: false,
+        indent_scripts: 'keep',
+        unformatted: ['span','br','a','img','b','i','em','pre', 'script']
+      });
+    }
+
 
     // ---------------------------------------------------------------------------- 退避させた Shader コードを元に戻す
     content = content.replace(/<\!--{{{ script-code-(\d+) }}}-->/igm,
@@ -114,7 +128,7 @@ module.exports = function (options)
     callback();
   }
 
-  function flush(callback)
+  function flush(callback) 
   {
     callback();
   }
@@ -245,7 +259,10 @@ function writeStyles(filepath, html, options)
     if (mincss.errors.length == 0)
       code = mincss.styles;
 
-    code = cssbeautify(code);
+    if (!css_min)
+      code = cssbeautify(code, {
+        selector_separator_newline: false
+      });
     cssCodes.push({dest:dest, code:code});
 
     console.log('out', dest);
@@ -321,8 +338,11 @@ function writeScripts(filepath, html, options)
     if (before) code = before + '\n' + code;
     if (after)  code = code + '\n' + after;
 
-    //code = UglifyJS.minify(code, {fromString:true}).code;
-    code = jsbeautify(code);
+    if (js_min)
+      code = UglifyJS.minify(code, {fromString:true}).code;
+    else
+      code = jsbeautify(code);
+
     var dest = getDestPath(filepath, 'js', '_components');
     jsCodes.push({dest:dest, code:code});
 
@@ -370,6 +390,7 @@ function parseAttributes(attrs)
 // -------------------------------------------------------------------------------- コンポーネントファイルを読み込んで、データを置き換えて返す
 function loadComponent(name, data)
 {
+  console.log(destHTMLPath + " > " + name);
   var result = "";
   try
   {
